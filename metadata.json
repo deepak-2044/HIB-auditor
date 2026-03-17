@@ -1,0 +1,7 @@
+{
+  "name": "Copy of HIB Medical Auditor Nepal english and nepali",
+  "description": "AI-powered medical claim auditing tool for the Health Insurance Board (HIB) Nepal. Extracts data from prescriptions and bills, cross-references with HIB 2081 formulary, and verifies claim amounts.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
