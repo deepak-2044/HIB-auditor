@@ -161,7 +161,13 @@ async function searchHIBDatabase(items: any[]) {
 }
 
 export async function analyzeMedicalDocument(base64Image: string, mimeType: string) {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+  const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error("Gemini API key is missing. Please set GEMINI_API_KEY in the AI Studio Secrets panel.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   // STEP 1: Extraction
   const extractionResponse = await ai.models.generateContent({
@@ -227,7 +233,13 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
 }
 
 export async function chatWithAuditor(history: any[], message: string, auditData: any) {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+  const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error("Gemini API key is missing. Please set GEMINI_API_KEY in the AI Studio Secrets panel.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   const chat = ai.chats.create({
     model: "gemini-3-flash-preview",
