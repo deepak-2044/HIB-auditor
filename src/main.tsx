@@ -1,3 +1,4 @@
+// Version: 2.0.5 - Vercel SPA Routing Fix
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

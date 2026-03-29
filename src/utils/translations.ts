@@ -100,7 +100,9 @@ export const translations = {
     recommendation: "Recommendation",
     highSeverity: "High",
     mediumSeverity: "Medium",
-    lowSeverity: "Low"
+    lowSeverity: "Low",
+    printReport: "Print Audit Report",
+    downloadReport: "Download Text Report"
   },
   ne: {
     appName: "HIB अडिटर",
@@ -202,7 +204,9 @@ export const translations = {
     recommendation: "सिफारिस",
     highSeverity: "उच्च",
     mediumSeverity: "मध्यम",
-    lowSeverity: "न्यून"
+    lowSeverity: "न्यून",
+    printReport: "अडिट रिपोर्ट प्रिन्ट गर्नुहोस्",
+    downloadReport: "टेक्स्ट रिपोर्ट डाउनलोड गर्नुहोस्"
   }
 };
 

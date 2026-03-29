@@ -48,6 +48,11 @@ export default function BatchProcessingScreen() {
           const auditedData = await analyzeMedicalDocument(claims[i].image, claims[i].mimeType);
           saveToHistory(auditedData);
           setProcessStates(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'completed', data: auditedData } : s));
+          
+          // Add a small delay between claims to avoid hitting RPM limits on free keys
+          if (i < claims.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
         } catch (err: any) {
           console.error(`Error processing claim ${i}:`, err);
           setProcessStates(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'error', error: err.message } : s));

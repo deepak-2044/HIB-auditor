@@ -39,6 +39,80 @@ export default function ResultsScreen() {
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model', text: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
 
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownload = () => {
+    const fileName = `HIB_Audit_${data.patient?.name || 'Claim'}_${new Date().toISOString().split('T')[0]}.txt`;
+    
+    let report = `==================================================\n`;
+    report += `          NEPAL HEALTH INSURANCE BOARD\n`;
+    report += `             MEDICAL AUDIT REPORT\n`;
+    report += `==================================================\n\n`;
+    
+    report += `PATIENT INFORMATION:\n`;
+    report += `-------------------\n`;
+    report += `Name: ${data.patient?.name || 'N/A'}\n`;
+    report += `HIB ID: ${data.patient?.health_insurance_number || 'N/A'}\n`;
+    report += `Age/Sex: ${data.patient?.age || 'N/A'}Y / ${data.patient?.sex || 'N/A'}\n\n`;
+    
+    report += `HOSPITAL DETAILS:\n`;
+    report += `----------------\n`;
+    report += `Hospital: ${data.hospital?.name || 'N/A'}\n`;
+    report += `Registration No: ${data.hospital?.registration_no || 'N/A'}\n`;
+    report += `Medical Officer: ${data.doctor?.name || 'N/A'} (NMC: ${data.doctor?.nmc_number || 'N/A'})\n\n`;
+    
+    report += `FINANCIAL SUMMARY:\n`;
+    report += `-----------------\n`;
+    report += `Total Claimed Amount: Rs. ${data.total_bill_amount?.toLocaleString()}\n`;
+    report += `HIB Approved Amount:  Rs. ${data.total_hib_amount?.toLocaleString()}\n`;
+    report += `Total Overcharge:     Rs. ${data.overcharge?.toLocaleString()}\n\n`;
+    
+    report += `AUDIT BREAKDOWN:\n`;
+    report += `---------------\n`;
+    report += `${'ITEM DESCRIPTION'.padEnd(30)} | ${'QTY'.padEnd(5)} | ${'BILL'.padEnd(10)} | ${'HIB'.padEnd(10)} | ${'STATUS'}\n`;
+    report += `-`.repeat(80) + `\n`;
+    
+    const allItems = [
+      ...data.audited_medicines.map((m: any) => ({ ...m, type: 'MED' })),
+      ...data.audited_labs.map((l: any) => ({ ...l, type: 'LAB' })),
+      ...data.audited_radiology.map((r: any) => ({ ...r, type: 'RAD' })),
+      ...data.audited_surgery.map((s: any) => ({ ...s, type: 'SURG' })),
+      ...data.audited_general.map((g: any) => ({ ...g, type: 'GEN' }))
+    ];
+    
+    allItems.forEach(item => {
+      const name = (item.original_name || 'Unknown').substring(0, 28).padEnd(30);
+      const qty = String(item.quantity || 0).padEnd(5);
+      const bill = String(item.bill_rate || 0).padEnd(10);
+      const hib = String(item.hib_rate || 0).padEnd(10);
+      const status = item.status?.toUpperCase() || 'UNKNOWN';
+      report += `${name} | ${qty} | ${bill} | ${hib} | ${status}\n`;
+    });
+    
+    report += `\nAI AUDITOR INSIGHTS:\n`;
+    report += `-------------------\n`;
+    report += `Medical Consistency: ${data.ai_insights?.medical_consistency || 'N/A'}\n`;
+    report += `Savings Opportunity: ${data.ai_insights?.savings_opportunity || 'N/A'}\n`;
+    if (data.ai_insights?.fraud_flags?.length > 0) {
+      report += `Anomalies Flagged: ${data.ai_insights.fraud_flags.join(', ')}\n`;
+    }
+    
+    report += `\n\nGenerated on: ${new Date().toLocaleString()}\n`;
+    report += `==================================================\n`;
+
+    const blob = new Blob([report], { type: 'text/plain' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(href);
+  };
+
   if (!data) {
     navigate('/');
     return null;
@@ -114,7 +188,7 @@ export default function ResultsScreen() {
   return (
     <div className="min-h-screen bg-brand-bg text-[#1E293B] font-sans pb-20">
       {/* Top Bar */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-10 p-3 sm:p-4 flex justify-between items-center shadow-sm">
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-10 p-3 sm:p-4 flex justify-between items-center shadow-sm print:hidden">
         <div className="flex gap-2 sm:gap-4">
           <button onClick={() => navigate('/')} className="flex items-center gap-1.5 sm:gap-2 font-black uppercase text-[8px] sm:text-[10px] tracking-widest text-slate-500 hover:text-brand-primary transition-colors">
             <ArrowLeft className="w-3 h-3 sm:w-4 sm:h-4" /> <span className="hidden xs:inline">{t.backToUpload}</span><span className="xs:hidden">Back</span>
@@ -123,9 +197,21 @@ export default function ResultsScreen() {
             <span className="hidden xs:inline">{t.viewHistory}</span><span className="xs:hidden">History</span>
           </button>
         </div>
-        <div className="flex gap-1 sm:gap-2">
-          <button className="p-1.5 sm:p-2 text-slate-400 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all"><Printer className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
-          <button className="p-1.5 sm:p-2 text-slate-400 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all"><Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
+        <div className="flex gap-1 sm:gap-2 print:hidden">
+          <button 
+            onClick={handlePrint}
+            className="p-1.5 sm:p-2 text-slate-400 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all"
+            title={t.printReport || "Print Report"}
+          >
+            <Printer className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          </button>
+          <button 
+            onClick={handleDownload}
+            className="p-1.5 sm:p-2 text-slate-400 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all"
+            title={t.downloadReport || "Download Report"}
+          >
+            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          </button>
         </div>
       </div>
 
@@ -426,7 +512,7 @@ export default function ResultsScreen() {
 
         {/* Action Bar */}
         {!isRejected && (
-          <div className="flex flex-col md:flex-row gap-4 pt-8">
+          <div className="flex flex-col md:flex-row gap-4 pt-8 print:hidden">
             <button 
               onClick={() => handleStatusUpdate('approved')}
               disabled={localStatus === 'approved'}
@@ -465,7 +551,7 @@ export default function ResultsScreen() {
       </main>
 
       {/* Floating Smart Assistant */}
-      <div className="fixed bottom-6 right-6 z-50">
+      <div className="fixed bottom-6 right-6 z-50 print:hidden">
         {isChatOpen ? (
           <motion.div 
             initial={{ opacity: 0, scale: 0.9, y: 20 }}

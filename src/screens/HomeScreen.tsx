@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Camera, FileText, CheckCircle2, AlertCircle, Info, Clock, Languages, Beaker, Database, Zap } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Upload, Camera, FileText, CheckCircle2, AlertCircle, Info, Clock, Languages, Beaker, Database, Zap, Settings, X, Key, ShieldAlert } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../utils/languageContext';
 import { supabase } from '../utils/supabase';
+import { hasValidApiKey } from '../services/geminiService';
 
 export default function HomeScreen() {
   const navigate = useNavigate();
@@ -12,28 +13,52 @@ export default function HomeScreen() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const checkConnection = async () => {
+    const checkDb = async () => {
       try {
-        // Try to query all possible tables to verify existence
-        const { error: err1 } = await supabase.from('hib_items').select('count', { count: 'exact', head: true });
-        const { error: err2 } = await supabase.from('health_insurance_benefits').select('count', { count: 'exact', head: true });
-        const { error: err3 } = await supabase.from('health_insurance_benefit').select('count', { count: 'exact', head: true });
+        const check1 = supabase.from('hib_items').select('count', { count: 'exact', head: true });
+        const check2 = supabase.from('health_insurance_benefits').select('count', { count: 'exact', head: true });
+        const check3 = supabase.from('health_insurance_benefit').select('count', { count: 'exact', head: true });
         
-        // If at least one of the HIB tables exists, we consider it connected
-        if (err1 && err2 && err3) {
-          console.warn('DB Connection check failed: All HIB tables missing');
-          setDbStatus('error');
-        } else {
-          setDbStatus('connected');
-        }
+        const results = await Promise.allSettled([check1, check2, check3]);
+        const anySuccess = results.some(r => r.status === 'fulfilled' && !(r as any).value.error);
+        
+        setDbStatus(anySuccess ? 'connected' : 'error');
       } catch (e) {
         setDbStatus('error');
       }
     };
-    checkConnection();
+
+    const checkApi = async () => {
+      const valid = await hasValidApiKey();
+      setHasApiKey(valid);
+    };
+    
+    checkDb();
+    checkApi();
+
+    // If check hangs, show the banner after 5 seconds
+    const timer = setTimeout(() => {
+      setHasApiKey(prev => prev === null ? false : prev);
+    }, 5000);
+
+    return () => clearTimeout(timer);
   }, []);
+
+  const handleConnectKey = async () => {
+    // Clear any old/expired key from localStorage first
+    localStorage.removeItem('HIB_GEMINI_API_KEY');
+    
+    if (typeof window !== 'undefined' && (window as any).aistudio?.openSelectKey) {
+      await (window as any).aistudio.openSelectKey();
+      // Force a full reload to ensure the new key is detected
+      window.location.reload();
+    } else {
+      navigate('/settings');
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -70,7 +95,7 @@ export default function HomeScreen() {
         <div className="flex items-center gap-4 sm:gap-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-black tracking-tighter uppercase text-brand-primary">{t.appName}</h1>
-            <p className="text-[8px] sm:text-[10px] font-bold text-slate-400 tracking-widest uppercase">{t.version}</p>
+            <p className="text-[8px] sm:text-[10px] font-bold text-slate-400 tracking-widest uppercase">V2081.2</p>
           </div>
           
           {/* Language Toggle */}
@@ -90,6 +115,24 @@ export default function HomeScreen() {
           </div>
         </div>
         <div className="flex gap-2 sm:gap-4">
+          {/* AI Status Indicator - Always visible on mobile */}
+          <div className="flex flex-col items-end justify-center px-3 border-r border-slate-200 mr-2">
+            <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">AI Status</p>
+            <div className="flex items-center gap-1.5">
+              <div className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-emerald-500' : hasApiKey === false ? 'bg-amber-500' : 'bg-slate-300 animate-pulse'}`}></div>
+              <span className={`text-[10px] font-bold uppercase ${hasApiKey ? 'text-emerald-600' : hasApiKey === false ? 'text-amber-600' : 'text-slate-400'}`}>
+                {hasApiKey ? 'Ready' : hasApiKey === false ? 'Key Req' : 'Checking'}
+              </span>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => navigate('/settings')}
+            className="p-2 bg-slate-100 text-brand-primary rounded-lg hover:bg-slate-200 transition-all border border-brand-primary/20"
+            title="App Settings"
+          >
+            <Key className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
           <button 
             onClick={() => navigate('/history')}
             className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold uppercase text-[8px] sm:text-[10px] tracking-widest hover:bg-slate-200 transition-all"
@@ -107,6 +150,65 @@ export default function HomeScreen() {
       </header>
 
       <main className="max-w-5xl mx-auto p-4 sm:p-8">
+        {/* Database Connection Banner - For Remixed Apps */}
+        <AnimatePresence>
+          {dbStatus === 'error' && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-8 bg-amber-600 p-6 rounded-[2rem] shadow-2xl shadow-amber-200 flex flex-col md:flex-row items-center justify-between gap-6 border-4 border-amber-400/30"
+            >
+              <div className="flex items-center gap-6 text-center md:text-left">
+                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-xl shrink-0 -rotate-3">
+                  <Database className="w-8 h-8 text-amber-600" />
+                </div>
+                <div>
+                  <h4 className="font-black uppercase tracking-tighter text-white text-xl mb-1">Database Offline</h4>
+                  <p className="text-sm text-amber-50 font-medium max-w-md leading-tight">
+                    Since this is a remixed app, you may need to configure your own Supabase database in Settings to store and retrieve HIB rates.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => navigate('/settings')}
+                className="w-full md:w-auto px-12 py-4 bg-white text-amber-600 rounded-2xl font-black uppercase tracking-widest text-sm hover:scale-105 active:scale-95 transition-all shadow-xl"
+              >
+                Fix Database
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* API Key Connection Banner - High Visibility */}
+        <AnimatePresence>
+          {hasApiKey === false && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="mb-8 bg-blue-600 p-6 rounded-[2rem] shadow-2xl shadow-blue-200 flex flex-col md:flex-row items-center justify-between gap-6 border-4 border-blue-400/30"
+            >
+              <div className="flex items-center gap-6 text-center md:text-left">
+                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-xl shrink-0 rotate-3">
+                  <Key className="w-8 h-8 text-blue-600" />
+                </div>
+                <div>
+                  <h4 className="font-black uppercase tracking-tighter text-white text-xl mb-1">AI Connection Required</h4>
+                  <p className="text-sm text-blue-50 font-medium max-w-md leading-tight">
+                    To use AI features, you must connect your Gemini API key. This is the most secure way to link your Google account.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={handleConnectKey}
+                className="w-full md:w-auto px-12 py-4 bg-white text-blue-600 rounded-2xl font-black uppercase tracking-widest text-sm hover:scale-105 active:scale-95 transition-all shadow-xl"
+              >
+                Connect Now
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center py-8 lg:py-12">
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
@@ -122,10 +224,10 @@ export default function HomeScreen() {
                 </div>
               </div>
               <h2 className="text-4xl sm:text-6xl font-black leading-[0.9] tracking-tighter text-slate-900 uppercase">
-                {t.automated} <br />
-                <span className="text-brand-primary">{t.claim}</span> <br />
-                {t.verification}
-              </h2>
+              {t.automated} <br />
+              <span className="text-brand-primary">Claim</span> <br />
+              Auditor
+            </h2>
             </div>
             
             <p className="text-lg sm:text-xl text-slate-500 font-medium leading-relaxed max-w-xl">
@@ -224,7 +326,13 @@ export default function HomeScreen() {
           </div>
           <div>
             <p className="text-[10px] font-mono uppercase font-bold mb-2">{t.support}</p>
-            <p className="text-xs">{t.supportDesc}</p>
+            <p className="text-xs mb-2">{t.supportDesc}</p>
+            <button 
+              onClick={() => navigate('/settings')}
+              className="text-[10px] font-black uppercase tracking-widest text-brand-primary hover:underline"
+            >
+              Open System Settings →
+            </button>
           </div>
         </div>
       </footer>

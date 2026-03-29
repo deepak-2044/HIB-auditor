@@ -6,18 +6,22 @@ import BatchProcessingScreen from './screens/BatchProcessingScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import ReviewDetailsScreen from './screens/ReviewDetailsScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import QRCodeOverlay from './components/QRCodeOverlay';
 
 export default function App() {
   return (
     <div className="min-h-screen bg-brand-bg">
       <Routes>
         <Route path="/" element={<HomeScreen />} />
+        <Route path="/settings" element={<SettingsScreen />} />
         <Route path="/processing" element={<ProcessingScreen />} />
         <Route path="/batch-processing" element={<BatchProcessingScreen />} />
         <Route path="/results" element={<ResultsScreen />} />
         <Route path="/history" element={<HistoryScreen />} />
         <Route path="/review-details" element={<ReviewDetailsScreen />} />
       </Routes>
+      <QRCodeOverlay />
     </div>
   );
 }

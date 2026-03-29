@@ -160,18 +160,94 @@ async function searchHIBDatabase(items: any[]) {
   return auditedItems;
 }
 
+export function getApiKey() {
+  // 1. Try to get from localStorage
+  const localKey = localStorage.getItem('HIB_GEMINI_API_KEY');
+  
+  // 2. Try to get from environment
+  const envKey = (typeof process !== 'undefined' && process.env?.API_KEY) ||
+    import.meta.env.VITE_GEMINI_API_KEY || 
+    (typeof process !== 'undefined' && process.env?.VITE_GEMINI_API_KEY) ||
+    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY);
+    
+  // If we have a local key, use it (unless it's a placeholder)
+  if (localKey && localKey.trim() && !localKey.includes('TODO')) return localKey.trim();
+  
+  // Otherwise use env key
+  if (envKey && envKey.trim() && !envKey.includes('TODO') && envKey.length > 10) {
+    return envKey.trim();
+  }
+  
+  return undefined;
+}
+
+export function clearApiKey() {
+  localStorage.removeItem('HIB_GEMINI_API_KEY');
+}
+
+export async function hasValidApiKey() {
+  const key = getApiKey();
+  if (key) return true;
+
+  // Check AI Studio platform key with timeout
+  if (typeof window !== 'undefined' && (window as any).aistudio?.hasSelectedApiKey) {
+    try {
+      // Add a timeout to the platform check
+      const platformCheck = (window as any).aistudio.hasSelectedApiKey();
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
+      
+      const result = await Promise.race([platformCheck, timeout]);
+      return !!result;
+    } catch (e) {
+      console.warn("Platform API key check failed or timed out:", e);
+      return false;
+    }
+  }
+  
+  return false;
+}
+
 export async function analyzeMedicalDocument(base64Image: string, mimeType: string) {
-  const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = getApiKey();
   
   if (!apiKey) {
-    throw new Error("Gemini API key is missing. Please set GEMINI_API_KEY in the AI Studio Secrets panel.");
+    throw new Error("Gemini API key is missing. Please set it in the App Settings (gear icon) or AI Studio.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
   
+  const callWithRetry = async (fn: () => Promise<any>, retries = 3, delay = 2000) => {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isQuotaError = 
+        err.message?.includes('429') || 
+        err.message?.includes('RESOURCE_EXHAUSTED') ||
+        err.status === 429 ||
+        (err.response && err.response.status === 429);
+
+      const isExpiredError = 
+        err.message?.includes('API key expired') || 
+        err.message?.includes('expired') ||
+        err.status === 400;
+
+      if (isExpiredError) {
+        clearApiKey(); // Clear the bad key so user can re-connect
+        throw new Error("Your API key has expired. Please refresh the page or re-connect your Gemini key in Settings.");
+      }
+
+      if (isQuotaError && retries > 0) {
+        console.warn(`Quota exceeded (429). Retrying in ${delay}ms... (${retries} attempts left)`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return callWithRetry(fn, retries - 1, delay * 2);
+      }
+      throw err;
+    }
+  };
+
   // STEP 1: Extraction
-  const extractionResponse = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+  const extractionResponse = await callWithRetry(() => ai.models.generateContent({
+    model: "gemini-flash-latest",
     contents: [
       {
         parts: [
@@ -186,7 +262,7 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
       }
     ],
     config: { responseMimeType: "application/json" }
-  });
+  }));
 
   const extractedData = JSON.parse(extractionResponse.text || "{}");
   
@@ -197,9 +273,9 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
   // STEP 2: Database Lookup
   const itemsWithRules = await searchHIBDatabase(extractedData.items || []);
 
-  // STEP 3: Clinical Auditing (Grounding)
-  const auditResponse = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+  // STEP 3: Clinical Auditing
+  const auditResponse = await callWithRetry(() => ai.models.generateContent({
+    model: "gemini-flash-latest",
     contents: [
       {
         parts: [
@@ -212,10 +288,9 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
       }
     ],
     config: { 
-      responseMimeType: "application/json",
-      tools: [{ googleSearch: {} }] 
+      responseMimeType: "application/json"
     }
-  });
+  }));
 
   const auditData = JSON.parse(auditResponse.text || "{}");
 
@@ -233,16 +308,16 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
 }
 
 export async function chatWithAuditor(history: any[], message: string, auditData: any) {
-  const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = getApiKey();
   
   if (!apiKey) {
-    throw new Error("Gemini API key is missing. Please set GEMINI_API_KEY in the AI Studio Secrets panel.");
+    throw new Error("Gemini API key is missing. Please set it in the App Settings (gear icon) or AI Studio.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
   
   const chat = ai.chats.create({
-    model: "gemini-3-flash-preview",
+    model: "gemini-flash-latest",
     config: {
       systemInstruction: `You are the HIB Smart Assistant. You have access to the following audit results: ${JSON.stringify(auditData)}. 
       Your goal is to help the user understand the audit, explain HIB rules, and provide clinical context. 
