@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, 
   Printer, 
@@ -20,7 +20,8 @@ import {
   Check,
   MessageSquare,
   Send,
-  Loader2
+  Loader2,
+  X
 } from 'lucide-react';
 import { updateHistoryItemStatus } from '../utils/historyManager';
 import { useLanguage } from '../utils/languageContext';
@@ -38,6 +39,18 @@ export default function ResultsScreen() {
   const [chatMessage, setChatMessage] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model', text: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  
+  // Generic Swapper state
+  const [brandWarning, setBrandWarning] = useState<string | null>(null);
+  const [showBrandPopup, setShowBrandPopup] = useState(false);
+
+  useEffect(() => {
+    const brandItems = (data?.audited_medicines || []).filter((m: any) => m.status === 'brand');
+    if (brandItems.length > 0) {
+      setBrandWarning(brandItems[0].original_name || brandItems[0].name);
+      setShowBrandPopup(true);
+    }
+  }, [data]);
   
   const allItems = [
     ...(data?.audited_medicines || []).map((m: any) => ({ ...m, type: 'MED' })),
@@ -765,6 +778,45 @@ export default function ResultsScreen() {
           </motion.button>
         )}
       </div>
+      {/* Brand Warning Popup (Generic Swapper) */}
+      <AnimatePresence>
+        {showBrandPopup && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden relative"
+            >
+              <div className="p-8 space-y-6 text-center">
+                <div className="w-20 h-20 bg-red-50 rounded-[2rem] flex items-center justify-center mx-auto">
+                  <AlertTriangle className="w-10 h-10 text-red-500" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Brand Name Detected</h3>
+                  <p className="text-sm font-bold text-slate-500 leading-relaxed">
+                    Warning: <span className="text-red-600 font-black">'{brandWarning}'</span> detected. This will be rejected as HIB only approves generic medicines.
+                  </p>
+                </div>
+                <div className="pt-4">
+                  <button 
+                    onClick={() => setShowBrandPopup(false)}
+                    className="w-full bg-[#141414] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-opacity-90 transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-4 h-4" /> I Understand
+                  </button>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowBrandPopup(false)}
+                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
