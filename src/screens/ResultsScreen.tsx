@@ -38,6 +38,18 @@ export default function ResultsScreen() {
   const [chatMessage, setChatMessage] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model', text: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  
+  const allItems = [
+    ...(data?.audited_medicines || []).map((m: any) => ({ ...m, type: 'MED' })),
+    ...(data?.audited_labs || []).map((l: any) => ({ ...l, type: 'LAB' })),
+    ...(data?.audited_radiology || []).map((r: any) => ({ ...r, type: 'RAD' })),
+    ...(data?.audited_surgery || []).map((s: any) => ({ ...s, type: 'SURG' })),
+    ...(data?.audited_general || []).map((g: any) => ({ ...g, type: 'GEN' }))
+  ];
+  
+  const overchargedItems = allItems.filter((item: any) => 
+    item.bill_rate > item.hib_rate && item.status !== 'not_found'
+  );
 
   const handlePrint = () => {
     window.print();
@@ -73,14 +85,6 @@ export default function ResultsScreen() {
     report += `---------------\n`;
     report += `${'ITEM DESCRIPTION'.padEnd(30)} | ${'QTY'.padEnd(5)} | ${'BILL'.padEnd(10)} | ${'HIB'.padEnd(10)} | ${'STATUS'}\n`;
     report += `-`.repeat(80) + `\n`;
-    
-    const allItems = [
-      ...data.audited_medicines.map((m: any) => ({ ...m, type: 'MED' })),
-      ...data.audited_labs.map((l: any) => ({ ...l, type: 'LAB' })),
-      ...data.audited_radiology.map((r: any) => ({ ...r, type: 'RAD' })),
-      ...data.audited_surgery.map((s: any) => ({ ...s, type: 'SURG' })),
-      ...data.audited_general.map((g: any) => ({ ...g, type: 'GEN' }))
-    ];
     
     allItems.forEach(item => {
       const name = (item.original_name || 'Unknown').substring(0, 28).padEnd(30);
@@ -144,6 +148,49 @@ export default function ResultsScreen() {
       updateHistoryItemStatus(data.id, status);
       setLocalStatus(status);
     }
+  };
+
+  const handleProceedToClaim = () => {
+    // Get configured openIMIS URL or use default
+    const baseUrl = localStorage.getItem('HIB_OPENIMIS_URL') || "https://demo.openimis.org/claims/new";
+    
+    const params = new URLSearchParams();
+    
+    // Map HIB Auditor data to openIMIS fields based on Image 1
+    if (data.hospital?.registration_no) params.append('health_facility_code', data.hospital.registration_no);
+    if (data.patient?.health_insurance_number) params.append('insurance_no', data.patient.health_insurance_number);
+    
+    // Diagnosis mapping (ICD-10)
+    if (data.diagnosis && data.diagnosis.length > 0) {
+      // Primary diagnosis
+      params.append('diagnosis', data.diagnosis[0].icd10_code || data.diagnosis[0].name || '');
+      
+      // Additional diagnoses
+      if (data.diagnosis.length > 1) params.append('diagnosis_1', data.diagnosis[1].icd10_code || data.diagnosis[1].name || '');
+      if (data.diagnosis.length > 2) params.append('diagnosis_2', data.diagnosis[2].icd10_code || data.diagnosis[2].name || '');
+      if (data.diagnosis.length > 3) params.append('diagnosis_3', data.diagnosis[3].icd10_code || data.diagnosis[3].name || '');
+      if (data.diagnosis.length > 4) params.append('diagnosis_4', data.diagnosis[4].icd10_code || data.diagnosis[4].name || '');
+    }
+
+    // Dates (Default to today)
+    const today = new Date().toISOString().split('T')[0];
+    params.append('start_date', today);
+    params.append('end_date', today);
+
+    // Claim Admin / Doctor
+    if (data.doctor?.name) params.append('claim_admin', data.doctor.name);
+    
+    // Generate a unique claim code if not present
+    const claimCode = data.id?.substring(0, 8).toUpperCase() || Math.random().toString(36).substring(2, 10).toUpperCase();
+    params.append('claim_code', `CLM-${claimCode}`);
+
+    const finalUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${params.toString()}`;
+    
+    // Open openIMIS in a new tab
+    window.open(finalUrl, '_blank');
+    
+    // Mark as approved locally
+    handleStatusUpdate('approved');
   };
 
   const StatusBadge = ({ status }: { status: string }) => {
@@ -247,13 +294,55 @@ export default function ResultsScreen() {
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-emerald-50 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-500" />
               </div>
-              <div>
-                <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-emerald-600">{t.claimVerified}</h2>
-                <p className="text-xs sm:text-sm font-bold text-slate-500">{t.verifiedSummary}</p>
+              <div className="flex-1 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-emerald-600">{t.claimVerified}</h2>
+                  <p className="text-xs sm:text-sm font-bold text-slate-500">{t.verifiedSummary}</p>
+                </div>
+                {data.ai_insights?.is_bhs_eligible && (
+                  <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-200 flex items-center gap-2">
+                    <ShieldCheck className="w-3 h-3" />
+                    {t.bhsEligible}
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
+
+        {/* Risk Meter Section */}
+        {!isRejected && data.ai_insights?.rejection_risk_score !== undefined && (
+          <div className="bg-white p-6 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] shadow-xl border border-slate-100">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-slate-800 flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-brand-primary" />
+                  {t.rejectionRisk}
+                </h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mt-1">{t.medicalPolicy}</p>
+              </div>
+              <div className="text-right">
+                <span className={`text-3xl font-black ${data.ai_insights.rejection_risk_score > 60 ? 'text-red-500' : data.ai_insights.rejection_risk_score > 30 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                  {data.ai_insights.rejection_risk_score}%
+                </span>
+                <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest">{t.riskScore}</p>
+              </div>
+            </div>
+            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${data.ai_insights.rejection_risk_score}%` }}
+                className={`h-full ${data.ai_insights.rejection_risk_score > 60 ? 'bg-red-500' : data.ai_insights.rejection_risk_score > 30 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+              />
+            </div>
+            <div className="flex justify-between mt-2">
+              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Low</span>
+              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Medium</span>
+              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">High</span>
+            </div>
+          </div>
+        )}
+
         
         {/* High Value Claim Warning */}
         {!isRejected && data.total_hib_amount > 5000 && (
@@ -352,6 +441,45 @@ export default function ResultsScreen() {
           </div>
         )}
 
+        {/* Overcharged Items Detail Section */}
+        {!isRejected && overchargedItems.length > 0 && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white p-6 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] shadow-xl border-2 border-amber-100"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                <AlertCircle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black uppercase tracking-tight text-slate-900">{t.overchargedItems}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.rateMismatchDesc}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              {overchargedItems.map((item: any, i: number) => (
+                <div key={i} className="flex justify-between items-center p-4 bg-amber-50/50 rounded-xl border border-amber-100">
+                  <div className="flex-1">
+                    <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest mb-1">{item.type || 'ITEM'} • {item.hib_code}</p>
+                    <p className="font-black text-slate-800 uppercase tracking-tight">{item.original_name}</p>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1">
+                      Qty: {item.quantity} × (Rs. {item.bill_rate} - Rs. {item.hib_rate})
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-black text-amber-600 tracking-tighter">
+                      +Rs. {((item.bill_rate - item.hib_rate) * item.quantity).toLocaleString()}
+                    </p>
+                    <p className="text-[8px] font-black text-amber-500 uppercase tracking-widest">Extra Charge</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
         {/* Detailed Audit Table (Swapped to be before Insights) */}
         {!isRejected && (
           <div className="space-y-4">
@@ -384,14 +512,8 @@ export default function ResultsScreen() {
               </div>
 
               <div className="divide-y divide-slate-100">
-                {[
-                  ...data.audited_medicines.map((m: any) => ({ ...m, type: 'MED' })),
-                  ...data.audited_labs.map((l: any) => ({ ...l, type: 'LAB' })),
-                  ...data.audited_radiology.map((r: any) => ({ ...r, type: 'RAD' })),
-                  ...data.audited_surgery.map((s: any) => ({ ...s, type: 'SURG' })),
-                  ...data.audited_general.map((g: any) => ({ ...g, type: 'GEN' }))
-                ].map((item, i) => {
-                  const isRateMismatch = item.bill_rate !== item.hib_rate && item.status !== 'not_found';
+                {allItems.map((item, i) => {
+                  const isRateMismatch = item.bill_rate > item.hib_rate && item.status !== 'not_found';
                   
                   return (
                     <div key={i} className={`p-4 flex flex-col sm:grid sm:grid-cols-12 gap-3 sm:gap-4 items-start sm:items-center hover:bg-gray-50 transition-colors ${isRateMismatch ? 'bg-amber-50/30' : ''}`}>
@@ -399,6 +521,12 @@ export default function ResultsScreen() {
                         <p className="text-[8px] sm:text-[10px] font-mono font-bold opacity-30 mb-1">{item.type} • {item.hib_code}</p>
                         <div className="flex items-center gap-2">
                           <p className="font-bold text-sm uppercase tracking-tighter">{item.original_name}</p>
+                          {item.is_nlem_listed && (
+                            <span className="bg-blue-50 text-blue-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-blue-100 flex items-center gap-1">
+                              <Check className="w-2 h-2" />
+                              NLEM
+                            </span>
+                          )}
                           {isRateMismatch && (
                             <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-1.5 py-0.5 rounded flex items-center gap-1">
                               <AlertCircle className="w-2 h-2" />
@@ -407,47 +535,41 @@ export default function ResultsScreen() {
                           )}
                         </div>
                         {item.flag === 'UNNECESSARY_INVESTIGATION' && (
-                        <div className="mt-1 flex items-center gap-1.5 bg-red-50 text-red-600 px-2 py-0.5 rounded-md border border-red-100 w-fit">
-                          <AlertCircle className="w-3 h-3" />
-                          <span className="text-[9px] font-black uppercase tracking-widest">Unnecessary Investigation</span>
-                        </div>
-                      )}
-                      {item.status === 'brand' && (
-                        <p className="text-[10px] italic opacity-60 mt-1">Mapped to: {item.name}</p>
-                      )}
-                      {item.notes && (
-                        <p className="text-[10px] text-amber-600 font-medium mt-1 flex items-start gap-1">
-                          <Info className="w-3 h-3 shrink-0 mt-0.5" />
-                          <span>{item.notes}</span>
-                        </p>
-                      )}
-                    </div>
-                    
-                    <div className="flex sm:contents justify-between items-center w-full">
-                      <div className="sm:col-span-2 flex sm:justify-center">
-                        <StatusBadge status={item.status} />
+                          <div className="mt-1 flex items-center gap-1.5 bg-red-50 text-red-600 px-2 py-0.5 rounded-md border border-red-100 w-fit">
+                            <AlertCircle className="w-3 h-3" />
+                            <span className="text-[9px] font-black uppercase tracking-widest">Unnecessary Investigation</span>
+                          </div>
+                        )}
+                        {item.status === 'brand' && (
+                          <p className="text-[10px] italic opacity-60 mt-1">Mapped to: {item.name}</p>
+                        )}
+                        {item.notes && (
+                          <p className="text-[10px] text-amber-600 font-medium mt-1 flex items-start gap-1">
+                            <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                            <span>{item.notes}</span>
+                          </p>
+                        )}
                       </div>
                       
-                      <div className="sm:hidden text-[10px] font-bold text-slate-400 uppercase">{t.details}</div>
-                    </div>
+                      <div className="sm:col-span-2 flex sm:justify-center w-full sm:w-auto">
+                        <StatusBadge status={item.status} />
+                      </div>
 
-                    <div className="flex sm:contents justify-between items-center w-full border-t border-slate-50 pt-2 sm:pt-0 sm:border-0">
-                      <div className="sm:col-span-1 text-center font-mono text-sm flex items-center gap-2 sm:block">
+                      <div className="sm:col-span-1 text-center font-mono text-sm flex justify-between sm:block w-full sm:w-auto">
                         <span className="sm:hidden text-[10px] font-bold text-slate-400 uppercase">{t.qtyLabel}</span>
                         {item.quantity}
                       </div>
-                      <div className="sm:col-span-2 text-right font-mono text-sm flex items-center gap-2 sm:block">
+                      <div className="sm:col-span-2 text-right font-mono text-sm flex justify-between sm:block w-full sm:w-auto">
                         <span className="sm:hidden text-[10px] font-bold text-slate-400 uppercase">{t.billLabel}</span>
                         Rs. {item.bill_rate}
                       </div>
-                      <div className="sm:col-span-2 text-right font-mono text-sm font-bold flex items-center gap-2 sm:block">
+                      <div className="sm:col-span-2 text-right font-mono text-sm font-bold flex justify-between sm:block w-full sm:w-auto">
                         <span className="sm:hidden text-[10px] font-bold text-slate-400 uppercase">{t.hibLabel}</span>
-                        Rs. {item.hib_rate}
+                        <span className={isRateMismatch ? 'text-amber-600' : ''}>Rs. {item.hib_rate}</span>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -514,7 +636,7 @@ export default function ResultsScreen() {
         {!isRejected && (
           <div className="flex flex-col md:flex-row gap-4 pt-8 print:hidden">
             <button 
-              onClick={() => handleStatusUpdate('approved')}
+              onClick={handleProceedToClaim}
               disabled={localStatus === 'approved'}
               className={`flex-1 py-4 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                 localStatus === 'approved' 

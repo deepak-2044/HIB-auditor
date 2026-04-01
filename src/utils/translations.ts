@@ -102,7 +102,18 @@ export const translations = {
     mediumSeverity: "Medium",
     lowSeverity: "Low",
     printReport: "Print Audit Report",
-    downloadReport: "Download Text Report"
+    downloadReport: "Download Text Report",
+    openImisUrlLabel: "openIMIS Claims URL",
+    openImisUrlPlaceholder: "https://demo.openimis.org/claims/new",
+    externalIntegration: "External Integration",
+    externalIntegrationDesc: "Configure how this app connects to external claim systems like openIMIS.",
+    rejectionRisk: "Rejection Risk",
+    bhsEligible: "BHS Eligible",
+    nlemListed: "NLEM Listed",
+    riskScore: "Risk Score",
+    medicalPolicy: "Medical Policy Check",
+    overchargedItems: "Overcharged Items",
+    rateMismatchDesc: "These items have a bill rate higher than the HIB ceiling rate."
   },
   ne: {
     appName: "HIB अडिटर",
@@ -206,7 +217,18 @@ export const translations = {
     mediumSeverity: "मध्यम",
     lowSeverity: "न्यून",
     printReport: "अडिट रिपोर्ट प्रिन्ट गर्नुहोस्",
-    downloadReport: "टेक्स्ट रिपोर्ट डाउनलोड गर्नुहोस्"
+    downloadReport: "टेक्स्ट रिपोर्ट डाउनलोड गर्नुहोस्",
+    openImisUrlLabel: "openIMIS दाबी URL",
+    openImisUrlPlaceholder: "https://demo.openimis.org/claims/new",
+    externalIntegration: "बाह्य एकीकरण",
+    externalIntegrationDesc: "यो एपले openIMIS जस्ता बाह्य दाबी प्रणालीहरूमा कसरी जडान हुन्छ भनेर कन्फिगर गर्नुहोस्।",
+    rejectionRisk: "अस्वीकार जोखिम",
+    bhsEligible: "BHS योग्य",
+    nlemListed: "NLEM सूचीकृत",
+    riskScore: "जोखिम स्कोर",
+    medicalPolicy: "चिकित्सा नीति जाँच",
+    overchargedItems: "बढी शुल्क लिइएका वस्तुहरू",
+    rateMismatchDesc: "यी वस्तुहरूको बिल दर HIB को अधिकतम दरभन्दा बढी छ।"
   }
 };
 

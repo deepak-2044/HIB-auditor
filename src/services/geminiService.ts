@@ -2,60 +2,52 @@ import { GoogleGenAI } from "@google/genai";
 import { supabase } from "../utils/supabase";
 
 const EXTRACTION_PROMPT = `
-You are an expert Medical Data Extractor for the Health Insurance Board (HIB) Nepal. 
-Your task is to convert handwritten or printed hospital prescriptions, lab orders, and pharmacy bills into structured JSON data.
+### ROLE:
+You are a high-precision Medical Data Extraction Engine for HIB Nepal. 
+Your task is to convert HIB-04 Electronic Claim Summary Reports into structured JSON data with ZERO TOLERANCE for hallucinations.
 
-### CORE VALIDATION:
-You MUST look for these 6 core elements:
-1. HIB Insurance Number (Health Insurance Number)
-2. Patient's Name
-3. Doctor's Name
-4. National Medical Council (NMC) ID Number
-5. Hospital Name
-6. Unique Bill ID / Registration No.
-
-If ANY of these 6 items are missing, set "is_valid_claim": false and list the missing items in "missing_items".
-If all are present, set "is_valid_claim": true.
-
-### EXTRACTION RULES:
-1. MEDICINES: 
-   - Extract the FULL name, including brand names and strengths (e.g., "Tab. Napa 500mg").
-   - Strip out dosing instructions like "1-0-1", "TDS", "BID", or "Pc/Ac" from the 'name' field.
-   - Extract "bill_rate" (unit price) and "quantity".
-
-2. LABS, RADIOLOGY & SURGERY:
-   - Extract ONLY the actual test or procedure names.
-   - Extract "bill_rate" (unit price) and "quantity".
+### STRICT EXTRACTION PROTOCOL:
+1. **VERBATIM EXTRACTION**: Extract text EXACTLY as it appears on the page. Do NOT correct spelling, do NOT normalize names, and do NOT infer missing data.
+2. **GROUNDING RULE**: Every item in the "items" array MUST be physically present in the "ITEMIZED CLAIM DETAILS" table of the provided image.
+3. **NO HALLUCINATIONS**: If an item is NOT explicitly listed in the table, it is FORBIDDEN to include it. Do NOT add "ER CHARGE", "CONSULTATION", or any other item based on your medical knowledge.
+4. **TABLE EXTRACTION**: 
+   - Extract EVERY row from the "ITEMIZED CLAIM DETAILS" table.
+   - Map "Category" to one of: Medicine, Lab, Radiology, Surgical, General.
+   - Extract "Item/Service Name", "Qty", "Unit Price", and "Total (NPR)".
+5. **CORE VALIDATION**:
+   - Look for: HIB Insuree ID, Patient Name, Hospital Name, Claim ID, NMC No.
+   - If any are missing, set "is_valid_claim": false.
 
 ### JSON STRUCTURE:
 Return ONLY a valid JSON object.
 {
   "is_valid_claim": true,
   "missing_items": [],
-  "patient": { "name": "", "age": "", "sex": "", "health_insurance_number": "" },
+  "patient": { "name": "", "age": "", "sex": "", "health_insurance_number": "", "visit_type": "IPD/OPD" },
   "hospital": { "name": "", "registration_no": "" },
   "doctor": { "name": "", "nmc_number": "" },
   "diagnosis": [{"name": "", "icd10_code": ""}],
   "items": [
-    { "name": "", "category": "Medicine/Lab/Radiology/Surgery/General", "quantity": 1, "bill_rate": 0 }
+    { "name": "", "category": "Medicine/Lab/Radiology/Surgical/General", "quantity": 1, "bill_rate": 0 }
   ],
   "total_bill_amount": 0
 }`;
 
 const AUDIT_PROMPT = `
-You are a Senior Medical Auditor for HIB Nepal. 
-You are given a list of extracted items from a hospital bill and their corresponding official HIB rates and rules retrieved from our database.
+### ROLE:
+You are the "HIB Medical Automator," a Senior Medical Auditor for HIB Nepal.
+Your task is to audit the provided medical claim items against HIB rules and the provided diagnosis.
 
-### TASK:
-1. Compare the hospital's "bill_rate" with the official "hib_rate".
-2. Check for "UNNECESSARY_INVESTIGATION": Is the test/medicine medically indicated for the diagnosis?
-3. Check for "UPCODING" or "UNBUNDLING".
-4. If an item is "not_found" in the HIB database, explain WHY in the "notes" field for that item (e.g., "Item not in HIB 2081 Formulary", "Requires prior authorization", or "Possible naming mismatch").
-5. Specifically for "Complete Blood Count (CBC)": If it is not covered, check if it was billed under a different name like "TC/DC/Hb" or if it's simply missing from the provided HIB list.
+### STRICT AUDIT PROTOCOL:
+1. **STRICT INPUT ADHERENCE**: Audit ONLY the items provided in the input list. 
+2. **NO ADDITIONS**: It is STRICTLY FORBIDDEN to add items that were not in the original extraction. If "ER CHARGE" is not in the input, do NOT audit it or add it to the output.
+3. **PRESERVE CATEGORIES**: Keep the "category" exactly as it was in the input list.
+4. **DIAGNOSIS CONSISTENCY**: Check if the items are medically necessary for the diagnosis: {{DIAGNOSIS}}.
+5. **NLEM CHECK**: Verify if medicines are on the National List of Essential Medicines (NLEM).
+6. **RATE AUDIT**: Compare the "bill_rate" with the "hib_rate" provided in the context.
 
 ### INPUT DATA:
-Diagnosis: {{DIAGNOSIS}}
-Extracted Items & DB Rules: {{ITEMS_WITH_RULES}}
+Items to Audit: {{ITEMS_WITH_RULES}}
 
 ### JSON STRUCTURE:
 Return ONLY a valid JSON object.
@@ -63,18 +55,21 @@ Return ONLY a valid JSON object.
   "ai_insights": {
     "fraud_flags": [],
     "medical_consistency": "",
-    "savings_opportunity": ""
+    "savings_opportunity": "",
+    "rejection_risk_score": 0,
+    "is_bhs_eligible": true
   },
   "audited_items": [
     {
       "name": "",
       "original_name": "",
-      "category": "",
+      "category": "medicine/lab/radiology/surgical/general",
       "quantity": 1,
       "bill_rate": 0,
       "hib_rate": 0,
       "hib_code": "",
       "status": "exact/brand/not_found",
+      "is_nlem_listed": true,
       "flag": "UNNECESSARY_INVESTIGATION/UPCODING/UNBUNDLING/NONE",
       "notes": ""
     }
@@ -261,7 +256,12 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
         ]
       }
     ],
-    config: { responseMimeType: "application/json" }
+    config: { 
+      responseMimeType: "application/json",
+      temperature: 0, // Zero tolerance for creativity/hallucination
+      topP: 0.1,
+      topK: 1
+    }
   }));
 
   const extractedData = JSON.parse(extractionResponse.text || "{}");
@@ -288,7 +288,10 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
       }
     ],
     config: { 
-      responseMimeType: "application/json"
+      responseMimeType: "application/json",
+      temperature: 0, // Zero tolerance for creativity/hallucination
+      topP: 0.1,
+      topK: 1
     }
   }));
 
@@ -298,11 +301,14 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
   return {
     ...extractedData,
     ...auditData,
-    audited_medicines: auditData.audited_items.filter((i: any) => i.category === 'Medicine'),
-    audited_labs: auditData.audited_items.filter((i: any) => i.category === 'Lab'),
-    audited_radiology: auditData.audited_items.filter((i: any) => i.category === 'Radiology'),
-    audited_surgery: auditData.audited_items.filter((i: any) => i.category === 'Surgery'),
-    audited_general: auditData.audited_items.filter((i: any) => i.category === 'General'),
+    audited_medicines: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('med')),
+    audited_labs: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('lab')),
+    audited_radiology: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('rad')),
+    audited_surgery: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('surg')),
+    audited_general: auditData.audited_items.filter((i: any) => {
+      const cat = i.category?.toLowerCase() || '';
+      return !cat.includes('med') && !cat.includes('lab') && !cat.includes('rad') && !cat.includes('surg');
+    }),
     id: Date.now().toString() // For history manager
   };
 }

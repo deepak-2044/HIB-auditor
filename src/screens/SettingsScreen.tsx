@@ -3,22 +3,27 @@ import { useNavigate } from 'react-router-dom';
 import { Settings, Key, Save, ArrowLeft, ShieldCheck, Database, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { clearApiKey } from '../services/geminiService';
+import { useLanguage } from '../utils/languageContext';
 
 export default function SettingsScreen() {
   const navigate = useNavigate();
   const [tempApiKey, setTempApiKey] = useState(localStorage.getItem('HIB_GEMINI_API_KEY') || '');
   const [tempDbUrl, setTempDbUrl] = useState(localStorage.getItem('HIB_SUPABASE_URL') || '');
   const [tempDbKey, setTempDbKey] = useState(localStorage.getItem('HIB_SUPABASE_ANON_KEY') || '');
+  const [tempOpenImisUrl, setTempOpenImisUrl] = useState(localStorage.getItem('HIB_OPENIMIS_URL') || 'https://demo.openimis.org/front/claim/health/');
   const [saved, setSaved] = useState(false);
+  const { t } = useLanguage();
 
   const clearAll = () => {
     if (window.confirm("Are you sure you want to clear all manual settings? This will restore default environment values.")) {
       clearApiKey();
       localStorage.removeItem('HIB_SUPABASE_URL');
       localStorage.removeItem('HIB_SUPABASE_ANON_KEY');
+      localStorage.removeItem('HIB_OPENIMIS_URL');
       setTempApiKey('');
       setTempDbUrl('');
       setTempDbKey('');
+      setTempOpenImisUrl('https://demo.openimis.org/front/claim/health/');
       window.location.reload();
     }
   };
@@ -43,6 +48,13 @@ export default function SettingsScreen() {
       localStorage.setItem('HIB_SUPABASE_ANON_KEY', tempDbKey.trim());
     } else {
       localStorage.removeItem('HIB_SUPABASE_ANON_KEY');
+    }
+
+    // Save openIMIS URL
+    if (tempOpenImisUrl.trim()) {
+      localStorage.setItem('HIB_OPENIMIS_URL', tempOpenImisUrl.trim());
+    } else {
+      localStorage.removeItem('HIB_OPENIMIS_URL');
     }
 
     setSaved(true);
@@ -115,6 +127,26 @@ export default function SettingsScreen() {
                 placeholder="Paste your Supabase anon key..."
                 className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-sm focus:outline-none focus:ring-4 focus:ring-brand-primary/10 transition-all"
               />
+            </div>
+
+            <div className="pt-6 mt-6 border-t border-slate-100">
+              <div className="flex items-center gap-3 mb-4">
+                <Database className="w-5 h-5 text-brand-primary" />
+                <h3 className="text-sm font-black uppercase tracking-widest text-slate-800">{t.externalIntegration}</h3>
+              </div>
+              <p className="text-[10px] text-slate-500 mb-4">{t.externalIntegrationDesc}</p>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  {t.openImisUrlLabel}
+                </label>
+                <input 
+                  type="text"
+                  value={tempOpenImisUrl}
+                  onChange={(e) => setTempOpenImisUrl(e.target.value)}
+                  placeholder={t.openImisUrlPlaceholder}
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-sm focus:outline-none focus:ring-4 focus:ring-brand-primary/10 transition-all"
+                />
+              </div>
             </div>
           </div>
 
