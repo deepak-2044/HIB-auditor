@@ -35,12 +35,12 @@ export default function ReviewDetailsScreen() {
 
   // Identify specific issues from audited items
   const rateMismatches = [
-    ...auditedMedicines,
-    ...auditedLabs,
+    ...(data.audited_medicines || []),
+    ...(data.audited_labs || []),
     ...(data.audited_radiology || []),
     ...(data.audited_surgery || []),
     ...(data.audited_general || [])
-  ].filter((item: any) => item.bill_rate !== item.hib_rate && item.status !== 'not_found');
+  ].filter((item: any) => item.bill_rate > item.hib_rate && item.status !== 'not_found');
 
   const unnecessaryInvestigations = [
     ...auditedLabs,

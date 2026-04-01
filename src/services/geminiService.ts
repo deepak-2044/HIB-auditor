@@ -45,6 +45,7 @@ Your task is to audit the provided medical claim items against HIB rules and the
 4. **DIAGNOSIS CONSISTENCY**: Check if the items are medically necessary for the diagnosis: {{DIAGNOSIS}}.
 5. **NLEM CHECK**: Verify if medicines are on the National List of Essential Medicines (NLEM).
 6. **RATE AUDIT**: Compare the "bill_rate" with the "hib_rate" provided in the context.
+7. **NO RATE FLAGS**: Do NOT include "Rate Mismatch" or price-related issues in the "fraud_flags" array. These are calculated automatically by the system. Focus "fraud_flags" on patterns like upcoding, unbundling, or suspicious quantities.
 
 ### INPUT DATA:
 Items to Audit: {{ITEMS_WITH_RULES}}

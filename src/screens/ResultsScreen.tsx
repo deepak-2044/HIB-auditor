@@ -591,9 +591,11 @@ export default function ResultsScreen() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
               <div className="space-y-3">
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{t.fraudAnomaly}</p>
-                {data.ai_insights.fraud_flags?.length > 0 ? (
+                {data.ai_insights.fraud_flags?.filter((f: string) => !f.toLowerCase().includes('rate mismatch') && !f.toLowerCase().includes('price mismatch')).length > 0 ? (
                   <div className="space-y-2">
-                    {data.ai_insights.fraud_flags.map((flag: string, i: number) => (
+                    {data.ai_insights.fraud_flags
+                      .filter((f: string) => !f.toLowerCase().includes('rate mismatch') && !f.toLowerCase().includes('price mismatch'))
+                      .map((flag: string, i: number) => (
                       <div key={i} className="flex items-center gap-2 text-red-600 bg-red-50 p-2 rounded-lg">
                         <AlertTriangle className="w-3 h-3" />
                         <span className="text-[10px] font-black uppercase tracking-tight">{flag}</span>
