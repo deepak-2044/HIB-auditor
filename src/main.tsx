@@ -5,12 +5,15 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import './index.css';
 import { LanguageProvider } from './utils/languageContext.tsx';
+import { RoleProvider } from './utils/RoleContext.tsx';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <LanguageProvider>
-        <App />
+        <RoleProvider>
+          <App />
+        </RoleProvider>
       </LanguageProvider>
     </BrowserRouter>
   </StrictMode>,

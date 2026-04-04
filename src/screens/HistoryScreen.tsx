@@ -12,7 +12,8 @@ import {
   AlertTriangle, 
   CheckCircle2, 
   ShieldAlert, 
-  FileText 
+  FileText,
+  XCircle
 } from 'lucide-react';
 import { getHistory, deleteHistoryItem, cleanupHistory, HistoryItem, clearHistory } from '../utils/historyManager';
 import { useLanguage } from '../utils/languageContext';
@@ -109,12 +110,18 @@ export default function HistoryScreen() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {filteredHistory.map((item) => (
+            {filteredHistory.map((item, index) => (
               <motion.div 
                 key={item.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                onClick={() => navigate('/results', { state: { data: item.data } })}
+                onClick={() => navigate('/results', { 
+                  state: { 
+                    data: item.data,
+                    batchResults: filteredHistory.map(h => h.data),
+                    currentIndex: index
+                  } 
+                })}
                 className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-sm hover:shadow-xl hover:shadow-slate-200/50 border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 sm:gap-6 cursor-pointer transition-all group relative overflow-hidden"
               >
                 {/* Status Indicator Bar */}
@@ -123,6 +130,8 @@ export default function HistoryScreen() {
                     ? "bg-emerald-500" 
                     : item.status === 'flagged'
                     ? "bg-amber-500"
+                    : item.status === 'rejected'
+                    ? "bg-red-600"
                     : item.data.is_valid_claim 
                     ? "bg-slate-200" 
                     : "bg-red-500"
@@ -134,6 +143,8 @@ export default function HistoryScreen() {
                       ? "bg-emerald-50 text-emerald-500" 
                       : item.status === 'flagged'
                       ? "bg-amber-50 text-amber-500"
+                      : item.status === 'rejected'
+                      ? "bg-red-50 text-red-600"
                       : item.data.is_valid_claim 
                       ? "bg-slate-50 text-slate-400" 
                       : "bg-red-50 text-red-500"
@@ -142,6 +153,8 @@ export default function HistoryScreen() {
                       <CheckCircle2 className="w-6 h-6 sm:w-7 sm:h-7" />
                     ) : item.status === 'flagged' ? (
                       <AlertTriangle className="w-6 h-6 sm:w-7 sm:h-7" />
+                    ) : item.status === 'rejected' ? (
+                      <XCircle className="w-6 h-6 sm:w-7 sm:h-7" />
                     ) : item.data.is_valid_claim ? (
                       <FileText className="w-6 h-6 sm:w-7 sm:h-7" />
                     ) : (

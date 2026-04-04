@@ -1,15 +1,15 @@
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from "../utils/supabase";
 
-const EXTRACTION_PROMPT = `
+const HYBRID_AUDIT_PROMPT = `
 ### ROLE:
-You are a high-precision Medical Data Extraction Engine for HIB Nepal. 
-Your task is to convert HIB-04 Electronic Claim Summary Reports into structured JSON data with ZERO TOLERANCE for hallucinations.
+You are the "HIB Medical Automator," a Senior Medical Auditor and Data Extraction Engine for HIB Nepal.
+Your task is to extract data from HIB-04 Electronic Claim Summary Reports AND audit the items against HIB rules and the provided diagnosis.
 
-### STRICT EXTRACTION PROTOCOL:
-1. **VERBATIM EXTRACTION**: Extract text EXACTLY as it appears on the page. Do NOT correct spelling, do NOT normalize names, and do NOT infer missing data.
+### STEP 1: EXTRACTION PROTOCOL:
+1. **VERBATIM EXTRACTION**: Extract text EXACTLY as it appears on the page. Do NOT correct spelling, do NOT normalize names, and do NOT infer missing data (EXCEPT for ICD-10 codes).
 2. **GROUNDING RULE**: Every item in the "items" array MUST be physically present in the "ITEMIZED CLAIM DETAILS" table of the provided image.
-3. **NO HALLUCINATIONS**: If an item is NOT explicitly listed in the table, it is FORBIDDEN to include it. Do NOT add "ER CHARGE", "CONSULTATION", or any other item based on your medical knowledge.
+3. **NO HALLUCINATIONS**: If an item is NOT explicitly listed in the table, it is FORBIDDEN to include it.
 4. **TABLE EXTRACTION**: 
    - Extract EVERY row from the "ITEMIZED CLAIM DETAILS" table.
    - Map "Category" to one of: Medicine, Lab, Radiology, Surgical, General.
@@ -17,6 +17,15 @@ Your task is to convert HIB-04 Electronic Claim Summary Reports into structured 
 5. **CORE VALIDATION**:
    - Look for: HIB Insuree ID, Patient Name, Hospital Name, Claim ID, NMC No.
    - If any are missing, set "is_valid_claim": false.
+
+### STEP 2: AUDIT PROTOCOL:
+1. **DIAGNOSIS CONSISTENCY**: Check if the items are medically necessary for the extracted diagnosis.
+2. **NLEM CHECK**: Verify if medicines are on the National List of Essential Medicines (NLEM).
+3. **ICD-10 MAPPING**: If a diagnosis name is extracted but the ICD-10 code is missing or illegible on the document, you MUST use Google Search to assign the most specific and standard ICD-10 CM code possible.
+4. **CLEANED VERSION LOGIC**:
+   - For every item, provide a "cleaned" version that is optimized for HIB approval.
+   - **Medicine Mapping**: If an item is a brand name, the "cleaned_name" MUST be the generic equivalent.
+   - **Goal**: The cleaned version should have zero flags and 100% compliance.
 
 ### JSON STRUCTURE:
 Return ONLY a valid JSON object.
@@ -27,32 +36,7 @@ Return ONLY a valid JSON object.
   "hospital": { "name": "", "registration_no": "" },
   "doctor": { "name": "", "nmc_number": "" },
   "diagnosis": [{"name": "", "icd10_code": ""}],
-  "items": [
-    { "name": "", "category": "Medicine/Lab/Radiology/Surgical/General", "quantity": 1, "bill_rate": 0 }
-  ],
-  "total_bill_amount": 0
-}`;
-
-const AUDIT_PROMPT = `
-### ROLE:
-You are the "HIB Medical Automator," a Senior Medical Auditor for HIB Nepal.
-Your task is to audit the provided medical claim items against HIB rules and the provided diagnosis.
-
-### STRICT AUDIT PROTOCOL:
-1. **STRICT INPUT ADHERENCE**: Audit ONLY the items provided in the input list. 
-2. **NO ADDITIONS**: It is STRICTLY FORBIDDEN to add items that were not in the original extraction. If "ER CHARGE" is not in the input, do NOT audit it or add it to the output.
-3. **PRESERVE CATEGORIES**: Keep the "category" exactly as it was in the input list.
-4. **DIAGNOSIS CONSISTENCY**: Check if the items are medically necessary for the diagnosis: {{DIAGNOSIS}}.
-5. **NLEM CHECK**: Verify if medicines are on the National List of Essential Medicines (NLEM).
-6. **RATE AUDIT**: Compare the "bill_rate" with the "hib_rate" provided in the context.
-7. **NO RATE FLAGS**: Do NOT include "Rate Mismatch" or price-related issues in the "fraud_flags" array. These are calculated automatically by the system. Focus "fraud_flags" on patterns like upcoding, unbundling, or suspicious quantities.
-
-### INPUT DATA:
-Items to Audit: {{ITEMS_WITH_RULES}}
-
-### JSON STRUCTURE:
-Return ONLY a valid JSON object.
-{
+  "total_bill_amount": 0,
   "ai_insights": {
     "fraud_flags": [],
     "medical_consistency": "",
@@ -67,17 +51,21 @@ Return ONLY a valid JSON object.
       "category": "medicine/lab/radiology/surgical/general",
       "quantity": 1,
       "bill_rate": 0,
-      "hib_rate": 0,
-      "hib_code": "",
       "status": "exact/brand/not_found",
       "is_nlem_listed": true,
       "flag": "UNNECESSARY_INVESTIGATION/UPCODING/UNBUNDLING/NONE",
-      "notes": ""
+      "notes": "",
+      "cleaned_version": {
+        "name": "Generic Name or Original",
+        "rate": 0,
+        "code": "HIB_CODE"
+      }
     }
   ],
   "total_hib_amount": 0,
   "overcharge": 0,
-  "notes": ""
+  "notes": "",
+  "hash_payload": "string_representation_of_cleaned_data_for_sealing"
 }`;
 
 async function searchHIBDatabase(items: any[]) {
@@ -241,13 +229,13 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
     }
   };
 
-  // STEP 1: Extraction
-  const extractionResponse = await callWithRetry(() => ai.models.generateContent({
-    model: "gemini-flash-latest",
+  // COMBINED STEP: Extraction + Audit
+  const response = await callWithRetry(() => ai.models.generateContent({
+    model: "gemini-3-flash-preview",
     contents: [
       {
         parts: [
-          { text: EXTRACTION_PROMPT },
+          { text: HYBRID_AUDIT_PROMPT },
           {
             inlineData: {
               data: base64Image.split(',')[1] || base64Image,
@@ -259,58 +247,68 @@ export async function analyzeMedicalDocument(base64Image: string, mimeType: stri
     ],
     config: { 
       responseMimeType: "application/json",
-      temperature: 0, // Zero tolerance for creativity/hallucination
+      temperature: 0, 
       topP: 0.1,
-      topK: 1
+      topK: 1,
+      tools: [{ googleSearch: {} }]
     }
   }));
 
-  const extractedData = JSON.parse(extractionResponse.text || "{}");
+  const data = JSON.parse(response.text || "{}");
   
-  if (!extractedData.is_valid_claim) {
-    return { ...extractedData, audited_medicines: [], audited_labs: [], audited_radiology: [], audited_surgery: [], audited_general: [], total_hib_amount: 0, overcharge: 0 };
+  if (!data.is_valid_claim) {
+    return { ...data, audited_medicines: [], audited_labs: [], audited_radiology: [], audited_surgery: [], audited_general: [], total_hib_amount: 0, overcharge: 0 };
   }
 
-  // STEP 2: Database Lookup
-  const itemsWithRules = await searchHIBDatabase(extractedData.items || []);
-
-  // STEP 3: Clinical Auditing
-  const auditResponse = await callWithRetry(() => ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: [
-      {
-        parts: [
-          { 
-            text: AUDIT_PROMPT
-              .replace('{{DIAGNOSIS}}', JSON.stringify(extractedData.diagnosis))
-              .replace('{{ITEMS_WITH_RULES}}', JSON.stringify(itemsWithRules))
-          }
-        ]
+  // Database Lookup for Rates (Deterministic)
+  const itemsWithRates = await searchHIBDatabase(data.audited_items || []);
+  
+  // Merge DB rates back into the AI data
+  const finalAuditedItems = data.audited_items.map((item: any, idx: number) => {
+    const dbInfo = itemsWithRates[idx];
+    const hib_rate = dbInfo?.hib_rate || 0;
+    
+    // The HIB approved rate is the MINIMUM of the bill rate and the HIB ceiling rate.
+    // If hib_rate is 0 (not found), we assume HIB pays 0 for this item (strict audit).
+    const approvedRate = hib_rate > 0 ? Math.min(item.bill_rate, hib_rate) : 0;
+    
+    return {
+      ...item,
+      hib_rate,
+      hib_code: dbInfo?.hib_code || 'N/A',
+      approved_rate: approvedRate,
+      cleaned_version: {
+        ...item.cleaned_version,
+        rate: approvedRate,
+        code: dbInfo?.hib_code || 'N/A'
       }
-    ],
-    config: { 
-      responseMimeType: "application/json",
-      temperature: 0, // Zero tolerance for creativity/hallucination
-      topP: 0.1,
-      topK: 1
-    }
-  }));
+    };
+  });
 
-  const auditData = JSON.parse(auditResponse.text || "{}");
+  // Calculate totals based on the audited items
+  const calculatedTotalBill = finalAuditedItems.reduce((sum: number, item: any) => sum + (item.bill_rate * item.quantity), 0);
+  const total_hib_amount = finalAuditedItems.reduce((sum: number, item: any) => sum + (item.approved_rate * item.quantity), 0);
+  
+  // Use the larger of extracted total or calculated total to ensure we don't miss anything
+  const total_bill_amount = Math.max(data.total_bill_amount || 0, calculatedTotalBill);
+  const overcharge = total_bill_amount - total_hib_amount;
 
   // Format final response to match existing UI expectations
   return {
-    ...extractedData,
-    ...auditData,
-    audited_medicines: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('med')),
-    audited_labs: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('lab')),
-    audited_radiology: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('rad')),
-    audited_surgery: auditData.audited_items.filter((i: any) => i.category?.toLowerCase().includes('surg')),
-    audited_general: auditData.audited_items.filter((i: any) => {
+    ...data,
+    total_bill_amount,
+    audited_items: finalAuditedItems,
+    audited_medicines: finalAuditedItems.filter((i: any) => i.category?.toLowerCase().includes('med')),
+    audited_labs: finalAuditedItems.filter((i: any) => i.category?.toLowerCase().includes('lab')),
+    audited_radiology: finalAuditedItems.filter((i: any) => i.category?.toLowerCase().includes('rad')),
+    audited_surgery: finalAuditedItems.filter((i: any) => i.category?.toLowerCase().includes('surg')),
+    audited_general: finalAuditedItems.filter((i: any) => {
       const cat = i.category?.toLowerCase() || '';
       return !cat.includes('med') && !cat.includes('lab') && !cat.includes('rad') && !cat.includes('surg');
     }),
-    id: Date.now().toString() // For history manager
+    total_hib_amount,
+    overcharge: overcharge > 0 ? overcharge : 0,
+    id: Date.now().toString() 
   };
 }
 
@@ -324,11 +322,12 @@ export async function chatWithAuditor(history: any[], message: string, auditData
   const ai = new GoogleGenAI({ apiKey });
   
   const chat = ai.chats.create({
-    model: "gemini-flash-latest",
+    model: "gemini-3-flash-preview",
     config: {
       systemInstruction: `You are the HIB Smart Assistant. You have access to the following audit results: ${JSON.stringify(auditData)}. 
       Your goal is to help the user understand the audit, explain HIB rules, and provide clinical context. 
       Be professional, accurate, and concise. If the user asks about a specific item, refer to the audit notes.`,
+      tools: [{ googleSearch: {} }]
     },
   });
 

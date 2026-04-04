@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { Upload, Camera, FileText, CheckCircle2, AlertCircle, Info, Clock, Languages, Beaker, Database, Zap, Settings, X, Key, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../utils/languageContext';
+import { useRole } from '../utils/RoleContext';
 import { supabase } from '../utils/supabase';
 import { hasValidApiKey } from '../services/geminiService';
 
 export default function HomeScreen() {
   const navigate = useNavigate();
   const { t, language, setLanguage } = useLanguage();
+  const { appMode, setAppMode } = useRole();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -80,12 +82,14 @@ export default function HomeScreen() {
     });
 
     const results = await Promise.all(filePromises);
+    const finalResults = results.slice(0, 10);
     
-    if (results.length > 1) {
-      navigate('/batch-processing', { state: { claims: results } });
-    } else {
-      navigate('/processing', { state: { image: results[0].image, mimeType: results[0].mimeType } });
+    if (finalResults.length > 1) {
+      navigate('/batch-processing', { state: { claims: finalResults } });
+    } else if (finalResults.length === 1) {
+      navigate('/processing', { state: { image: finalResults[0].image, mimeType: finalResults[0].mimeType } });
     }
+    setIsUploading(false);
   };
 
   return (
@@ -111,6 +115,22 @@ export default function HomeScreen() {
               className={`px-2 py-1 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${language === 'ne' ? 'bg-white text-brand-primary shadow-sm' : 'text-slate-400'}`}
             >
               NE
+            </button>
+          </div>
+
+          {/* Role Switcher */}
+          <div className="flex bg-slate-100 p-1 rounded-lg ml-2">
+            <button 
+              onClick={() => setAppMode('hospital')}
+              className={`px-2 py-1 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${appMode === 'hospital' ? 'bg-white text-brand-primary shadow-sm' : 'text-slate-400'}`}
+            >
+              Hospital
+            </button>
+            <button 
+              onClick={() => setAppMode('hib')}
+              className={`px-2 py-1 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${appMode === 'hib' ? 'bg-white text-brand-primary shadow-sm' : 'text-slate-400'}`}
+            >
+              HIB
             </button>
           </div>
         </div>
@@ -231,7 +251,7 @@ export default function HomeScreen() {
             </div>
             
             <p className="text-lg sm:text-xl text-slate-500 font-medium leading-relaxed max-w-xl">
-              {t.heroDescription} Now supports batch processing—upload up to 5 claims at once for rapid auditing.
+              {t.heroDescription} Now supports batch processing—upload up to 10 claims at once for rapid auditing.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 pt-2 sm:pt-4">

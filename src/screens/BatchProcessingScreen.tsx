@@ -64,51 +64,85 @@ export default function BatchProcessingScreen() {
   }, [claims, navigate]);
 
   const allDone = processStates.every(s => s.status === 'completed' || s.status === 'error');
-  const completedCount = processStates.filter(s => s.status === 'completed').length;
+  const completedCount = processStates.filter(s => s.status === 'completed' || s.status === 'error').length;
+  const progress = (completedCount / claims.length) * 100;
 
   useEffect(() => {
     if (allDone) {
       const timer = setTimeout(() => {
-        navigate('/history');
+        const successfulResults = processStates
+          .filter(s => s.status === 'completed')
+          .map(s => s.data);
+
+        if (successfulResults.length > 0) {
+          navigate('/results', { 
+            state: { 
+              data: successfulResults[0],
+              batchResults: successfulResults,
+              currentIndex: 0
+            } 
+          });
+        } else {
+          navigate('/history');
+        }
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [allDone, navigate]);
+  }, [allDone, navigate, processStates]);
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] flex flex-col items-center justify-center p-4 sm:p-6 font-sans">
-      <div className="max-w-2xl w-full space-y-8 sm:space-y-12">
+      <div className="max-w-4xl w-full space-y-8 sm:space-y-12 py-10">
         <div className="text-center space-y-3 sm:space-y-4">
           <div className="inline-flex items-center gap-2 bg-brand-primary text-white px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mb-2">
             <Layers className="w-3 h-3" /> Batch Processing Mode
           </div>
           <h2 className="text-3xl sm:text-4xl font-serif italic">Auditing {claims.length} Claims</h2>
-          <p className="text-[10px] font-mono opacity-50 uppercase tracking-widest">
-            Processing {currentIdx + 1} of {claims.length} • {Math.round((completedCount / claims.length) * 100)}% Complete
-          </p>
+          
+          {/* Progress Bar Container */}
+          <div className="max-w-md mx-auto space-y-2">
+            <div className="h-2 bg-slate-200 rounded-full overflow-hidden border border-slate-300">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${progress}%` }}
+                className="h-full bg-brand-primary"
+                transition={{ duration: 0.5 }}
+              />
+            </div>
+            <p className="text-[10px] font-mono opacity-50 uppercase tracking-widest">
+              Processing {currentIdx + 1} of {claims.length} • {Math.round(progress)}% Complete
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {processStates.map((state, i) => (
             <div 
               key={i}
-              className={`flex items-center justify-between p-4 border transition-all duration-500 ${
+              className={`flex items-center justify-between p-4 border-2 transition-all duration-500 rounded-2xl ${
                 state.status === 'processing' 
-                  ? "border-[#141414] bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] scale-[1.02]" 
+                  ? "border-brand-primary bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] scale-[1.02] z-10" 
                   : state.status === 'completed'
-                    ? "border-emerald-600 bg-emerald-50 opacity-80" 
+                    ? "border-emerald-500 bg-emerald-50/50 opacity-80" 
                     : state.status === 'error'
-                      ? "border-red-600 bg-red-50"
-                      : "border-transparent opacity-20"
+                      ? "border-red-500 bg-red-50"
+                      : "border-slate-200 bg-slate-50/50 opacity-40"
               }`}
             >
               <div className="flex items-center gap-4">
-                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center font-black text-xs">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs transition-colors ${
+                  state.status === 'processing' ? 'bg-brand-primary text-white' :
+                  state.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                  state.status === 'error' ? 'bg-red-100 text-red-700' :
+                  'bg-slate-200 text-slate-500'
+                }`}>
                   {i + 1}
                 </div>
                 <div>
-                  <p className="font-black uppercase text-[10px] tracking-widest">Claim Document {i + 1}</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">
+                  <p className="font-black uppercase text-[10px] tracking-widest text-slate-900">Claim Document {i + 1}</p>
+                  <p className={`text-[9px] font-bold uppercase tracking-tight ${
+                    state.status === 'error' ? 'text-red-600' : 'text-slate-400'
+                  }`}>
                     {state.status === 'pending' && 'Waiting in queue...'}
                     {state.status === 'processing' && 'Analyzing with Google Intelligence...'}
                     {state.status === 'completed' && 'Audit Complete'}
@@ -117,10 +151,16 @@ export default function BatchProcessingScreen() {
                 </div>
               </div>
               
-              <div>
-                {state.status === 'processing' && <Loader2 className="w-5 h-5 animate-spin text-brand-primary" />}
-                {state.status === 'completed' && <CheckCircle className="w-5 h-5 text-emerald-600" />}
-                {state.status === 'error' && <AlertCircle className="w-5 h-5 text-red-600" />}
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                state.status === 'processing' ? 'bg-brand-primary/10' :
+                state.status === 'completed' ? 'bg-emerald-100' :
+                state.status === 'error' ? 'bg-red-100' :
+                'bg-slate-100'
+              }`}>
+                {state.status === 'pending' && <Database className="w-4 h-4 text-slate-300" />}
+                {state.status === 'processing' && <Loader2 className="w-4 h-4 animate-spin text-brand-primary" />}
+                {state.status === 'completed' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
+                {state.status === 'error' && <AlertCircle className="w-4 h-4 text-red-600" />}
               </div>
             </div>
           ))}

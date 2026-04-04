@@ -5,11 +5,13 @@ import { Loader2, FileSearch, Database, CheckCircle, Zap, ShieldAlert } from 'lu
 import { analyzeMedicalDocument } from '../services/geminiService';
 import { saveToHistory } from '../utils/historyManager';
 import { useLanguage } from '../utils/languageContext';
+import { useRole } from '../utils/RoleContext';
 
 export default function ProcessingScreen() {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { appMode } = useRole();
   const { image, mimeType } = location.state || {};
   
   const [step, setStep] = useState(0);
@@ -38,9 +40,12 @@ export default function ProcessingScreen() {
     const process = async () => {
       try {
         setStep(1);
+        // Step 1 & 2 are now combined in the AI call
         const auditedData = await analyzeMedicalDocument(image, mimeType);
         
-        setStep(4);
+        setStep(3); // Cross-referencing (already done in analyzeMedicalDocument)
+        setStep(4); // Medical consistency (already done in analyzeMedicalDocument)
+        
         saveToHistory(auditedData);
         setResultData(auditedData);
         
@@ -164,11 +169,13 @@ export default function ProcessingScreen() {
 
         <div className="bg-white border border-[#141414] p-4 font-mono text-[9px] sm:text-[10px] opacity-40 overflow-hidden">
           <div className="animate-pulse">
-            {">"} INITIALIZING GEMINI-3-FLASH...<br />
+            {">"} INITIALIZING HYBRID_AUDIT_ENGINE...<br />
             {">"} LOADING HIB_2081_PRICELIST.DB...<br />
+            {">"} MODE: {appMode === 'hospital' ? 'CLEAN & SEAL' : 'VERIFIER'}<br />
             {">"} SCANNING FOR PATIENT_ID...<br />
-            {step >= 1 && <>{">"} EXTRACTING ENTITIES FROM IMAGE...<br /></>}
-            {step >= 2 && <>{">"} MATCHING CODES: [MED, LAB, RAD]...<br /></>}
+            {step >= 1 && <>{">"} EXTRACTING & AUDITING ENTITIES...<br /></>}
+            {step >= 2 && <>{">"} MAPPING BRANDS TO GENERICS...<br /></>}
+            {step >= 3 && <>{">"} CAPPING RATES TO HIB_LIMITS...<br /></>}
           </div>
         </div>
       </div>

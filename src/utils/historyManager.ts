@@ -50,7 +50,7 @@ export const clearHistory = () => {
   localStorage.removeItem(HISTORY_KEY);
 };
 
-export const updateHistoryItemStatus = (id: string, status: 'approved' | 'flagged') => {
+export const updateHistoryItemStatus = (id: string, status: 'approved' | 'flagged' | 'rejected') => {
   const history = getHistory();
   const updated = history.map(item => {
     if (item.id === id || item.data.id === id) {
